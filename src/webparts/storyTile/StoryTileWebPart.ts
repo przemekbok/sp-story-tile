@@ -75,15 +75,44 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       return;
     }
 
-    const imageFieldName = this.properties.imageFieldName || 'Image';
     const titleFieldName = this.properties.titleFieldName || 'Title';
     const descFieldName = this.properties.descriptionFieldName || 'Description';
     const linkFieldName = this.properties.linkFieldName || 'LinkURL';
-
-    // We need to expand the Image field to get its properties
-    const listUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items?$select=Id,${titleFieldName},${descFieldName},${linkFieldName},${imageFieldName}/FileRef&$expand=${imageFieldName}`;
-
+    
     try {
+      // First, get the list fields to find the correct internal name of the image field
+      const fieldsUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/fields`;
+      const fieldsResponse: SPHttpClientResponse = await this.context.spHttpClient.get(
+        fieldsUrl,
+        SPHttpClient.configurations.v1
+      );
+      
+      const fieldsData: any = await fieldsResponse.json();
+      
+      // Find the image field by its display name
+      const imageFieldDisplayName = this.properties.imageFieldName || 'Image';
+      let imageFieldInternalName = '';
+      
+      if (fieldsData && fieldsData.value) {
+        const imageField = fieldsData.value.find((field: any) => 
+          field.Title === imageFieldDisplayName && 
+          (field.TypeAsString === 'Image' || field.TypeAsString === 'Thumbnail')
+        );
+        
+        if (imageField) {
+          imageFieldInternalName = imageField.InternalName;
+          console.log('Found image field internal name:', imageFieldInternalName);
+        } else {
+          console.warn(`Could not find image field with display name '${imageFieldDisplayName}'`);
+          // Try common pattern variations
+          imageFieldInternalName = imageFieldDisplayName.replace(/ /g, '_x0020_');
+        }
+      }
+      
+      // Now get the list items, with the correct field names
+      // For image fields, we need a different approach depending on what's available
+      const listUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items?$select=ID,${titleFieldName},${descFieldName},${linkFieldName}`;
+      
       const response: SPHttpClientResponse = await this.context.spHttpClient.get(
         listUrl, 
         SPHttpClient.configurations.v1
@@ -92,42 +121,59 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       const listItems: any = await response.json();
       
       if (listItems && listItems.value) {
-        // Map the SharePoint items to our IStoryItem format
-        this._storyItems = listItems.value.map((item: any) => {
-          // Handle the Image field correctly
-          let imageUrl = '';
+        // Get image URLs via a separate batch if we have the image field
+        if (imageFieldInternalName) {
+          const imagePromises = listItems.value.map(async (item: any) => {
+            try {
+              const itemUrl = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items(${item.ID})/FieldValuesAsHtml`;
+              const itemResponse = await this.context.spHttpClient.get(
+                itemUrl,
+                SPHttpClient.configurations.v1
+              );
+              const itemData = await itemResponse.json();
+              
+              // Extract image URL from HTML
+              let imageUrl = '';
+              if (itemData[imageFieldInternalName]) {
+                // Try to extract the image URL from the HTML
+                const htmlValue = itemData[imageFieldInternalName];
+                const imgSrcMatch = htmlValue.match(/src="([^"]+)"/);
+                if (imgSrcMatch && imgSrcMatch[1]) {
+                  imageUrl = imgSrcMatch[1];
+                }
+              }
+              return { id: item.ID, imageUrl };
+            } catch (error) {
+              console.error(`Error getting image for item ${item.ID}:`, error);
+              return { id: item.ID, imageUrl: require('./assets/welcome-light.png') };
+            }
+          });
           
-          // Check if we have the Image field and it has data
-          if (item[imageFieldName] && item[imageFieldName].ServerRelativeUrl) {
-            // Use the server relative URL of the image
-            imageUrl = item[imageFieldName].ServerRelativeUrl;
-          } else if (item[imageFieldName] && item[imageFieldName].Url) {
-            // Some image fields provide a direct URL
-            imageUrl = item[imageFieldName].Url;
-          } else if (item[`${imageFieldName}Url`]) {
-            // Fallback for older format
-            imageUrl = item[`${imageFieldName}Url`];
-          } else if (item[imageFieldName] && typeof item[imageFieldName] === 'string') {
-            // If it's just a string URL
-            imageUrl = item[imageFieldName];
-          } else {
-            // Default image if nothing is found
-            imageUrl = require('./assets/welcome-light.png');
-          }
-
-          // Convert relative URLs to absolute URLs
-          if (imageUrl && imageUrl.startsWith('/')) {
-            imageUrl = `${this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')}${imageUrl}`;
-          }
+          const imageResults = await Promise.all(imagePromises);
+          const imageMap = new Map(imageResults.map(item => [item.id, item.imageUrl]));
           
-          return {
-            id: item.Id,
-            title: item[titleFieldName] || 'No Title',
-            description: item[descFieldName] || '',
-            imageUrl: imageUrl,
-            linkUrl: item[linkFieldName] || '#'
-          };
-        });
+          // Map the SharePoint items to our IStoryItem format, now with images
+          this._storyItems = listItems.value.map((item: any) => {
+            return {
+              id: item.ID,
+              title: item[titleFieldName] || 'No Title',
+              description: item[descFieldName] || '',
+              imageUrl: imageMap.get(item.ID) || require('./assets/welcome-light.png'),
+              linkUrl: item[linkFieldName] || '#'
+            };
+          });
+        } else {
+          // No image field found, proceed with default image
+          this._storyItems = listItems.value.map((item: any) => {
+            return {
+              id: item.ID,
+              title: item[titleFieldName] || 'No Title',
+              description: item[descFieldName] || '',
+              imageUrl: require('./assets/welcome-light.png'),
+              linkUrl: item[linkFieldName] || '#'
+            };
+          });
+        }
       }
     } catch (error) {
       console.error("Error fetching items from SharePoint list:", error);
@@ -229,7 +275,7 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
                   description: 'Default: Description'
                 }),
                 PropertyPaneTextField('imageFieldName', {
-                  label: 'Image Field Name',
+                  label: 'Image Field Display Name',
                   description: 'Default: Image'
                 }),
                 PropertyPaneTextField('linkFieldName', {
