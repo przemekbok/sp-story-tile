@@ -8,11 +8,17 @@ import {
 } from '@microsoft/sp-property-pane';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 import { IReadonlyTheme } from '@microsoft/sp-component-base';
+import { SPFI, spfi, SPFx } from "@pnp/sp";
+import { LogLevel, PnPLogging } from "@pnp/logging";
+import "@pnp/sp/webs";
+import "@pnp/sp/lists";
+import "@pnp/sp/items";
+import "@pnp/sp/fields";
+import "@pnp/sp/files";
 
 import * as strings from 'StoryTileWebPartStrings';
 import StoryTile from './components/StoryTile';
 import { IStoryTileProps } from './components/IStoryTileProps';
-import { SPHttpClient, SPHttpClientResponse } from '@microsoft/sp-http';
 
 export interface IStoryTileWebPartProps {
   title: string;
@@ -33,11 +39,20 @@ export interface IStoryItem {
 }
 
 export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWebPartProps> {
-
+  private _sp: SPFI = null;
   private _isDarkTheme: boolean = false;
   private _environmentMessage: string = '';
   private _storyItems: IStoryItem[] = [];
   private _isLoading: boolean = true;
+
+  public onInit(): Promise<void> {
+    // Initialize PnP JS
+    this._sp = spfi().using(SPFx(this.context)).using(PnPLogging(LogLevel.Warning));
+    
+    return this._getEnvironmentMessage().then(message => {
+      this._environmentMessage = message;
+    });
+  }
 
   public render(): void {
     this._isLoading = true;
@@ -75,116 +90,83 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       return;
     }
 
-    const titleFieldName = this.properties.titleFieldName || 'Title';
-    const descFieldName = this.properties.descriptionFieldName || 'Description';
-    const linkFieldName = this.properties.linkFieldName || 'LinkURL';
-    
     try {
-      // First, get the list fields to find the correct internal name of the image field
-      const fieldsUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/fields`;
-      const fieldsResponse: SPHttpClientResponse = await this.context.spHttpClient.get(
-        fieldsUrl,
-        SPHttpClient.configurations.v1
+      // Set field names - with defaults if not provided
+      const titleFieldName = this.properties.titleFieldName || 'Title';
+      const descFieldName = this.properties.descriptionFieldName || 'Description';
+      const imageFieldName = this.properties.imageFieldName || 'Image';
+      const linkFieldName = this.properties.linkFieldName || 'LinkURL';
+
+      // Get list fields to find the Image field
+      const fields = await this._sp.web.lists.getByTitle(this.properties.listName).fields();
+      
+      // Find the Image field
+      const imageField = fields.find(field => 
+        field.Title === imageFieldName && 
+        (field.TypeAsString === 'Image' || field.TypeAsString === 'Thumbnail')
       );
       
-      const fieldsData: any = await fieldsResponse.json();
-      
-      // Find the image field by its display name
-      const imageFieldDisplayName = this.properties.imageFieldName || 'Image';
       let imageFieldInternalName = '';
-      
-      if (fieldsData && fieldsData.value) {
-        const imageField = fieldsData.value.find((field: any) => 
-          field.Title === imageFieldDisplayName && 
-          (field.TypeAsString === 'Image' || field.TypeAsString === 'Thumbnail')
-        );
-        
-        if (imageField) {
-          imageFieldInternalName = imageField.InternalName;
-          console.log('Found image field internal name:', imageFieldInternalName);
-        } else {
-          console.warn(`Could not find image field with display name '${imageFieldDisplayName}'`);
-          // Try common pattern variations
-          imageFieldInternalName = imageFieldDisplayName.replace(/ /g, '_x0020_');
-        }
+      if (imageField) {
+        imageFieldInternalName = imageField.InternalName;
+        console.log('Found image field internal name:', imageFieldInternalName);
       }
-      
-      // Now get the list items, with the correct field names
-      // For image fields, we need a different approach depending on what's available
-      const listUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items?$select=ID,${titleFieldName},${descFieldName},${linkFieldName}`;
-      
-      const response: SPHttpClientResponse = await this.context.spHttpClient.get(
-        listUrl, 
-        SPHttpClient.configurations.v1
-      );
-      
-      const listItems: any = await response.json();
-      
-      if (listItems && listItems.value) {
-        // Get image URLs via a separate batch if we have the image field
-        if (imageFieldInternalName) {
-          const imagePromises = listItems.value.map(async (item: any) => {
+
+      // Get items from the list with basic fields first
+      const items = await this._sp.web.lists.getByTitle(this.properties.listName).items
+        .select(`ID,${titleFieldName},${descFieldName},${linkFieldName}`)
+        .get();
+
+      // Process items
+      const processedItems: IStoryItem[] = await Promise.all(
+        items.map(async (item) => {
+          let imageUrl = '';
+          
+          if (imageFieldInternalName) {
             try {
-              const itemUrl = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items(${item.ID})/FieldValuesAsHtml`;
-              const itemResponse = await this.context.spHttpClient.get(
-                itemUrl,
-                SPHttpClient.configurations.v1
-              );
-              const itemData = await itemResponse.json();
+              // Get the item's field values as HTML to extract the image
+              const itemWithHtml = await this._sp.web.lists.getByTitle(this.properties.listName)
+                .items.getById(item.ID)
+                .fieldValuesAsHtml.get();
               
-              // Extract image URL from HTML
-              let imageUrl = '';
-              if (itemData[imageFieldInternalName]) {
-                // Try to extract the image URL from the HTML
-                const htmlValue = itemData[imageFieldInternalName];
+              if (itemWithHtml[imageFieldInternalName]) {
+                // Extract URL from HTML
+                const htmlValue = itemWithHtml[imageFieldInternalName];
                 const imgSrcMatch = htmlValue.match(/src="([^"]+)"/);
                 if (imgSrcMatch && imgSrcMatch[1]) {
                   imageUrl = imgSrcMatch[1];
+                  
+                  // Convert relative URLs to absolute URLs
+                  if (imageUrl.startsWith('/')) {
+                    imageUrl = `${this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')}${imageUrl}`;
+                  }
                 }
               }
-              return { id: item.ID, imageUrl };
             } catch (error) {
               console.error(`Error getting image for item ${item.ID}:`, error);
-              return { id: item.ID, imageUrl: require('./assets/welcome-light.png') };
             }
-          });
+          }
           
-          const imageResults = await Promise.all(imagePromises);
-          const imageMap = new Map(imageResults.map(item => [item.id, item.imageUrl]));
+          // Use default image if no image was found
+          if (!imageUrl) {
+            imageUrl = require('./assets/welcome-light.png');
+          }
           
-          // Map the SharePoint items to our IStoryItem format, now with images
-          this._storyItems = listItems.value.map((item: any) => {
-            return {
-              id: item.ID,
-              title: item[titleFieldName] || 'No Title',
-              description: item[descFieldName] || '',
-              imageUrl: imageMap.get(item.ID) || require('./assets/welcome-light.png'),
-              linkUrl: item[linkFieldName] || '#'
-            };
-          });
-        } else {
-          // No image field found, proceed with default image
-          this._storyItems = listItems.value.map((item: any) => {
-            return {
-              id: item.ID,
-              title: item[titleFieldName] || 'No Title',
-              description: item[descFieldName] || '',
-              imageUrl: require('./assets/welcome-light.png'),
-              linkUrl: item[linkFieldName] || '#'
-            };
-          });
-        }
-      }
+          return {
+            id: item.ID,
+            title: item[titleFieldName] || 'No Title',
+            description: item[descFieldName] || '',
+            imageUrl: imageUrl,
+            linkUrl: item[linkFieldName] || '#'
+          };
+        })
+      );
+      
+      this._storyItems = processedItems;
     } catch (error) {
       console.error("Error fetching items from SharePoint list:", error);
       this._storyItems = [];
     }
-  }
-
-  protected onInit(): Promise<void> {
-    return this._getEnvironmentMessage().then(message => {
-      this._environmentMessage = message;
-    });
   }
 
   private _getEnvironmentMessage(): Promise<string> {
