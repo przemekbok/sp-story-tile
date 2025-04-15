@@ -75,8 +75,13 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       return;
     }
 
-    // Prepare URL to fetch items from SP list
-    const listUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items?$select=Id,${this.properties.titleFieldName || 'Title'},${this.properties.descriptionFieldName || 'Description'},${this.properties.imageFieldName || 'ImageURL'},${this.properties.linkFieldName || 'LinkURL'}`;
+    const imageFieldName = this.properties.imageFieldName || 'Image';
+    const titleFieldName = this.properties.titleFieldName || 'Title';
+    const descFieldName = this.properties.descriptionFieldName || 'Description';
+    const linkFieldName = this.properties.linkFieldName || 'LinkURL';
+
+    // We need to expand the Image field to get its properties
+    const listUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items?$select=Id,${titleFieldName},${descFieldName},${linkFieldName},${imageFieldName}/FileRef&$expand=${imageFieldName}`;
 
     try {
       const response: SPHttpClientResponse = await this.context.spHttpClient.get(
@@ -89,12 +94,38 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       if (listItems && listItems.value) {
         // Map the SharePoint items to our IStoryItem format
         this._storyItems = listItems.value.map((item: any) => {
+          // Handle the Image field correctly
+          let imageUrl = '';
+          
+          // Check if we have the Image field and it has data
+          if (item[imageFieldName] && item[imageFieldName].ServerRelativeUrl) {
+            // Use the server relative URL of the image
+            imageUrl = item[imageFieldName].ServerRelativeUrl;
+          } else if (item[imageFieldName] && item[imageFieldName].Url) {
+            // Some image fields provide a direct URL
+            imageUrl = item[imageFieldName].Url;
+          } else if (item[`${imageFieldName}Url`]) {
+            // Fallback for older format
+            imageUrl = item[`${imageFieldName}Url`];
+          } else if (item[imageFieldName] && typeof item[imageFieldName] === 'string') {
+            // If it's just a string URL
+            imageUrl = item[imageFieldName];
+          } else {
+            // Default image if nothing is found
+            imageUrl = require('./assets/welcome-light.png');
+          }
+
+          // Convert relative URLs to absolute URLs
+          if (imageUrl && imageUrl.startsWith('/')) {
+            imageUrl = `${this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')}${imageUrl}`;
+          }
+          
           return {
             id: item.Id,
-            title: item[this.properties.titleFieldName || 'Title'] || 'No Title',
-            description: item[this.properties.descriptionFieldName || 'Description'] || '',
-            imageUrl: item[this.properties.imageFieldName || 'ImageURL'] || require('./assets/welcome-light.png'),
-            linkUrl: item[this.properties.linkFieldName || 'LinkURL'] || '#'
+            title: item[titleFieldName] || 'No Title',
+            description: item[descFieldName] || '',
+            imageUrl: imageUrl,
+            linkUrl: item[linkFieldName] || '#'
           };
         });
       }
@@ -198,8 +229,8 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
                   description: 'Default: Description'
                 }),
                 PropertyPaneTextField('imageFieldName', {
-                  label: 'Image URL Field Name',
-                  description: 'Default: ImageURL'
+                  label: 'Image Field Name',
+                  description: 'Default: Image'
                 }),
                 PropertyPaneTextField('linkFieldName', {
                   label: 'Link URL Field Name',
