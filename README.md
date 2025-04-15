@@ -6,11 +6,11 @@ A modern SharePoint Framework (SPFx) web part that displays content from a Share
 
 - Displays 1-4 tiles per view with configurable layout
 - Carousel navigation for browsing through additional tiles
-- Pulls content dynamically from a SharePoint list
+- Pulls content dynamically from a SharePoint list using PnP JS
+- Robust handling of SharePoint Image fields
 - Responsive design that works across all device sizes
 - Modern UI with shadows, rounded corners, and hover effects
 - Configurable fields for customization
-- Support for SharePoint native Image fields
 
 ![Story Tile Web Part](./assets/story-tile-preview.png)
 
@@ -47,7 +47,7 @@ Create a SharePoint list with the following columns:
 3. **Image**
    - Type: Image
    - The image to display on the tile
-   - The web part automatically handles image field data retrieval
+   - The web part has robust handling for this field type
 
 4. **LinkURL**
    - Type: Single line of text
@@ -73,11 +73,36 @@ In the web part properties pane, you can configure:
 - **Tiles Per View**: Number of tiles to display at once (1-4)
 - **Field Name Settings**: Configure custom field names if they differ from defaults
 
+## Technical Details
+
+### PnP JS Integration
+
+This web part uses PnP JS (SharePoint Patterns and Practices JavaScript library) for SharePoint data operations, which offers several advantages:
+
+- Cleaner, more maintainable code for SharePoint operations
+- Improved error handling and fallback mechanisms
+- Better performance through optimized queries
+- More robust handling of various SharePoint field types
+
+### Image Field Handling
+
+The web part implements a multi-layered approach to retrieve image data from SharePoint:
+
+1. **Field Detection**: Automatically detects the internal name of the Image field
+2. **Multiple Retrieval Methods**:
+   - Uses `fieldValuesAsHtml` to extract image URLs from HTML representation
+   - Attempts direct access to image field data in various formats
+   - Uses RenderListDataAsStream as a fallback method
+3. **URL Processing**: Handles both relative and absolute URLs correctly
+
+This approach ensures maximum compatibility with different SharePoint configurations and field types.
+
 ## Development Notes
 
 - Built using SharePoint Framework (SPFx) 1.20.0
 - Uses React and Fluent UI components
 - Implements responsive grid layout with CSS Grid
+- Leverages PnP JS library for enhanced SharePoint operations
 
 ## Contributing
 
