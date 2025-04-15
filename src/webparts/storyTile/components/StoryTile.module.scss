@@ -4,6 +4,9 @@
   overflow: hidden;
   color: "[theme:bodyText, default: #323130]";
   color: var(--bodyText);
+  display: flex;
+  justify-content: center;
+  align-items: center;
   &.teams {
     font-family: $ms-font-family-fallbacks;
   }
