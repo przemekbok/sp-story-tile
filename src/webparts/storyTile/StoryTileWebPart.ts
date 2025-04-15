@@ -3,7 +3,8 @@ import * as ReactDom from 'react-dom';
 import { Version } from '@microsoft/sp-core-library';
 import {
   type IPropertyPaneConfiguration,
-  PropertyPaneTextField
+  PropertyPaneTextField,
+  PropertyPaneDropdown
 } from '@microsoft/sp-property-pane';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 import { IReadonlyTheme } from '@microsoft/sp-component-base';
@@ -11,11 +12,23 @@ import { IReadonlyTheme } from '@microsoft/sp-component-base';
 import * as strings from 'StoryTileWebPartStrings';
 import StoryTile from './components/StoryTile';
 import { IStoryTileProps } from './components/IStoryTileProps';
+import { SPHttpClient, SPHttpClientResponse } from '@microsoft/sp-http';
 
 export interface IStoryTileWebPartProps {
+  title: string;
+  listName: string;
+  itemsPerPage: number;
+  imageFieldName: string;
+  titleFieldName: string;
+  descriptionFieldName: string;
+  linkFieldName: string;
+}
+
+export interface IStoryItem {
+  id: number;
+  title: string;
   description: string;
   imageUrl: string;
-  title: string;
   linkUrl: string;
 }
 
@@ -23,23 +36,72 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
 
   private _isDarkTheme: boolean = false;
   private _environmentMessage: string = '';
+  private _storyItems: IStoryItem[] = [];
+  private _isLoading: boolean = true;
 
   public render(): void {
+    this._isLoading = true;
+    this._fetchStoriesFromList().then(() => {
+      this._isLoading = false;
+      this._renderWebPart();
+    }).catch(error => {
+      console.error("Error fetching stories:", error);
+      this._isLoading = false;
+      this._renderWebPart();
+    });
+  }
+
+  private _renderWebPart(): void {
     const element: React.ReactElement<IStoryTileProps> = React.createElement(
       StoryTile,
       {
-        description: this.properties.description,
+        webPartTitle: this.properties.title || 'Stories',
         isDarkTheme: this._isDarkTheme,
         environmentMessage: this._environmentMessage,
         hasTeamsContext: !!this.context.sdks.microsoftTeams,
         userDisplayName: this.context.pageContext.user.displayName,
-        imageUrl: this.properties.imageUrl || require('./assets/welcome-light.png'),
-        title: this.properties.title || 'Story Tile',
-        linkUrl: this.properties.linkUrl || '#'
+        storyItems: this._storyItems,
+        isLoading: this._isLoading,
+        itemsPerPage: this.properties.itemsPerPage || 4
       }
     );
 
     ReactDom.render(element, this.domElement);
+  }
+
+  private async _fetchStoriesFromList(): Promise<void> {
+    if (!this.properties.listName) {
+      this._storyItems = []; // No list selected, empty the array
+      return;
+    }
+
+    // Prepare URL to fetch items from SP list
+    const listUrl: string = `${this.context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${this.properties.listName}')/items?$select=Id,${this.properties.titleFieldName || 'Title'},${this.properties.descriptionFieldName || 'Description'},${this.properties.imageFieldName || 'ImageURL'},${this.properties.linkFieldName || 'LinkURL'}`;
+
+    try {
+      const response: SPHttpClientResponse = await this.context.spHttpClient.get(
+        listUrl, 
+        SPHttpClient.configurations.v1
+      );
+      
+      const listItems: any = await response.json();
+      
+      if (listItems && listItems.value) {
+        // Map the SharePoint items to our IStoryItem format
+        this._storyItems = listItems.value.map((item: any) => {
+          return {
+            id: item.Id,
+            title: item[this.properties.titleFieldName || 'Title'] || 'No Title',
+            description: item[this.properties.descriptionFieldName || 'Description'] || '',
+            imageUrl: item[this.properties.imageFieldName || 'ImageURL'] || require('./assets/welcome-light.png'),
+            linkUrl: item[this.properties.linkFieldName || 'LinkURL'] || '#'
+          };
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching items from SharePoint list:", error);
+      this._storyItems = [];
+    }
   }
 
   protected onInit(): Promise<void> {
@@ -112,16 +174,36 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
               groupName: strings.BasicGroupName,
               groupFields: [
                 PropertyPaneTextField('title', {
-                  label: 'Tile Title'
+                  label: 'Web Part Title'
                 }),
-                PropertyPaneTextField('description', {
-                  label: strings.DescriptionFieldLabel
+                PropertyPaneTextField('listName', {
+                  label: 'SharePoint List Name'
                 }),
-                PropertyPaneTextField('imageUrl', {
-                  label: 'Image URL'
+                PropertyPaneDropdown('itemsPerPage', {
+                  label: 'Tiles Per View',
+                  options: [
+                    { key: 1, text: '1' },
+                    { key: 2, text: '2' },
+                    { key: 3, text: '3' },
+                    { key: 4, text: '4' }
+                  ],
+                  selectedKey: 4
                 }),
-                PropertyPaneTextField('linkUrl', {
-                  label: 'Link URL'
+                PropertyPaneTextField('titleFieldName', {
+                  label: 'Title Field Name',
+                  description: 'Default: Title'
+                }),
+                PropertyPaneTextField('descriptionFieldName', {
+                  label: 'Description Field Name',
+                  description: 'Default: Description'
+                }),
+                PropertyPaneTextField('imageFieldName', {
+                  label: 'Image URL Field Name',
+                  description: 'Default: ImageURL'
+                }),
+                PropertyPaneTextField('linkFieldName', {
+                  label: 'Link URL Field Name',
+                  description: 'Default: LinkURL'
                 })
               ]
             }
