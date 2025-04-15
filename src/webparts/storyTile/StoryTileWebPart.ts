@@ -97,10 +97,10 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       const imageFieldName = this.properties.imageFieldName || 'Image';
       const linkFieldName = this.properties.linkFieldName || 'LinkURL';
 
-      // Get list fields to find the Image field
+      // Get list fields to understand the structure
       const fields = await this._sp.web.lists.getByTitle(this.properties.listName).fields();
       
-      // Find the Image field
+      // Find the Image field to get its internal name
       const imageField = fields.find(field => 
         field.Title === imageFieldName && 
         (field.TypeAsString === 'Image' || field.TypeAsString === 'Thumbnail')
@@ -110,11 +110,19 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       if (imageField) {
         imageFieldInternalName = imageField.InternalName;
         console.log('Found image field internal name:', imageFieldInternalName);
+      } else {
+        console.warn(`Could not find image field with title '${imageFieldName}'`);
+        // Try a common pattern for internal names
+        imageFieldInternalName = imageFieldName.replace(/ /g, '_x0020_');
       }
 
-      // Get items from the list with basic fields first
+      // Build a dynamic select query that includes all necessary fields
+      let selectQuery = `ID,${titleFieldName},${descFieldName},${linkFieldName}`;
+      
+      // Try multiple approaches to get the image data
       const items = await this._sp.web.lists.getByTitle(this.properties.listName).items
-        .select(`ID,${titleFieldName},${descFieldName},${linkFieldName}`)
+        .select(selectQuery)
+        .expand(imageFieldInternalName)
         .get();
 
       // Process items
@@ -122,29 +130,75 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
         items.map(async (item) => {
           let imageUrl = '';
           
-          if (imageFieldInternalName) {
+          // Approach 1: Try to get image via fieldValuesAsHtml
+          try {
+            const itemWithHtml = await this._sp.web.lists.getByTitle(this.properties.listName)
+              .items.getById(item.ID)
+              .fieldValuesAsHtml.get();
+            
+            if (itemWithHtml[imageFieldInternalName]) {
+              // Extract URL from HTML
+              const htmlValue = itemWithHtml[imageFieldInternalName];
+              const imgSrcMatch = htmlValue.match(/src="([^"]+)"/);
+              if (imgSrcMatch && imgSrcMatch[1]) {
+                imageUrl = imgSrcMatch[1];
+              }
+            }
+          } catch (error) {
+            console.warn(`Approach 1 failed for item ${item.ID}:`, error);
+          }
+
+          // Approach 2: Try to access image JSON data directly
+          if (!imageUrl && item[imageFieldInternalName]) {
             try {
-              // Get the item's field values as HTML to extract the image
-              const itemWithHtml = await this._sp.web.lists.getByTitle(this.properties.listName)
-                .items.getById(item.ID)
-                .fieldValuesAsHtml.get();
+              // Handle different potential formats of the image data
+              if (typeof item[imageFieldInternalName] === 'string') {
+                imageUrl = item[imageFieldInternalName];
+              } else if (item[imageFieldInternalName].Url) {
+                imageUrl = item[imageFieldInternalName].Url;
+              } else if (item[imageFieldInternalName].serverRelativeUrl) {
+                imageUrl = item[imageFieldInternalName].serverRelativeUrl;
+              } else if (item[imageFieldInternalName].ServerRelativeUrl) {
+                imageUrl = item[imageFieldInternalName].ServerRelativeUrl;
+              }
+            } catch (error) {
+              console.warn(`Approach 2 failed for item ${item.ID}:`, error);
+            }
+          }
+
+          // Approach 3: Try with RenderListDataAsStream
+          if (!imageUrl) {
+            try {
+              const list = this._sp.web.lists.getByTitle(this.properties.listName);
+              const renderData = await list.renderListDataAsStream({
+                ViewXml: `<View><Query><Where><Eq><FieldRef Name='ID'/><Value Type='Number'>${item.ID}</Value></Eq></Where></Query></View>`
+              });
               
-              if (itemWithHtml[imageFieldInternalName]) {
-                // Extract URL from HTML
-                const htmlValue = itemWithHtml[imageFieldInternalName];
-                const imgSrcMatch = htmlValue.match(/src="([^"]+)"/);
-                if (imgSrcMatch && imgSrcMatch[1]) {
-                  imageUrl = imgSrcMatch[1];
-                  
-                  // Convert relative URLs to absolute URLs
-                  if (imageUrl.startsWith('/')) {
-                    imageUrl = `${this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')}${imageUrl}`;
+              if (renderData && renderData.Row && renderData.Row.length > 0) {
+                const row = renderData.Row[0];
+                // Check for various possible field names
+                const possibleFields = [
+                  imageFieldInternalName,
+                  `${imageFieldInternalName}.serverUrl`,
+                  `${imageFieldInternalName}.urlEncoded`,
+                  `${imageFieldInternalName}Url`
+                ];
+                
+                for (const field of possibleFields) {
+                  if (row[field] && !imageUrl) {
+                    imageUrl = row[field];
+                    break;
                   }
                 }
               }
             } catch (error) {
-              console.error(`Error getting image for item ${item.ID}:`, error);
+              console.warn(`Approach 3 failed for item ${item.ID}:`, error);
             }
+          }
+
+          // Convert relative URLs to absolute URLs
+          if (imageUrl && imageUrl.startsWith('/')) {
+            imageUrl = `${this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')}${imageUrl}`;
           }
           
           // Use default image if no image was found
