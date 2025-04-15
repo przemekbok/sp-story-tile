@@ -1,73 +1,88 @@
-# cc-cloud
+# Story Tile Web Part for SharePoint
 
-## Summary
-
-Short summary on functionality and used technologies.
-
-[picture of the solution in action, if possible]
-
-## Used SharePoint Framework Version
-
-![version](https://img.shields.io/badge/version-1.20.0-green.svg)
-
-## Applies to
-
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
-
-## Prerequisites
-
-> Any special pre-requisites?
-
-## Solution
-
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
-
-## Version history
-
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
-
-## Disclaimer
-
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
-
----
-
-## Minimal Path to Awesome
-
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - **npm install**
-  - **gulp serve**
-
-> Include any additional steps as needed.
+A modern SharePoint Framework (SPFx) web part that displays content from a SharePoint list in a tile-based layout with carousel functionality.
 
 ## Features
 
-Description of the extension that expands upon high-level summary above.
+- Displays 1-4 tiles per view with configurable layout
+- Carousel navigation for browsing through additional tiles
+- Pulls content dynamically from a SharePoint list
+- Responsive design that works across all device sizes
+- Modern UI with shadows, rounded corners, and hover effects
+- Configurable fields for customization
+- Support for SharePoint native Image fields
 
-This extension illustrates the following concepts:
+![Story Tile Web Part](./assets/story-tile-preview.png)
 
-- topic 1
-- topic 2
-- topic 3
+## Getting Started
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+### Prerequisites
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+- Node.js (version 18.17.1 or higher)
+- SharePoint Developer environment
+- SharePoint list with the correct content type (see below)
 
-## References
+### Installation
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
+1. Clone this repository
+2. Run `npm install`
+3. Run `gulp serve` to test locally
+4. Run `gulp bundle --ship` and `gulp package-solution --ship` to package for deployment
+5. Upload the `.sppkg` file from the `sharepoint/solution` folder to your SharePoint App Catalog
+6. Add the web part to your page
+
+## SharePoint List Setup
+
+### Content Type Columns
+
+Create a SharePoint list with the following columns:
+
+1. **Title** (Default column)
+   - Used for the tile heading
+
+2. **Description**
+   - Type: Multiple lines of text
+   - Used for the brief description on the tile
+
+3. **Image**
+   - Type: Image
+   - The image to display on the tile
+   - The web part automatically handles image field data retrieval
+
+4. **LinkURL**
+   - Type: Single line of text
+   - The URL to navigate to when the tile is clicked
+
+5. **SortOrder** (Optional)
+   - Type: Number
+   - Used to control the order of tiles
+
+### Creating the List
+
+1. Create a new list in SharePoint
+2. Add the columns specified above
+3. Add your content items
+4. Configure the web part to use this list
+
+## Web Part Configuration
+
+In the web part properties pane, you can configure:
+
+- **Web Part Title**: The heading displayed above the tiles
+- **SharePoint List Name**: Name of the list containing your tile content
+- **Tiles Per View**: Number of tiles to display at once (1-4)
+- **Field Name Settings**: Configure custom field names if they differ from defaults
+
+## Development Notes
+
+- Built using SharePoint Framework (SPFx) 1.20.0
+- Uses React and Fluent UI components
+- Implements responsive grid layout with CSS Grid
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
