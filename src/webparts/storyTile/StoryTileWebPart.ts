@@ -14,6 +14,9 @@ import { IStoryTileProps } from './components/IStoryTileProps';
 
 export interface IStoryTileWebPartProps {
   description: string;
+  imageUrl: string;
+  title: string;
+  linkUrl: string;
 }
 
 export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWebPartProps> {
@@ -29,7 +32,10 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
         isDarkTheme: this._isDarkTheme,
         environmentMessage: this._environmentMessage,
         hasTeamsContext: !!this.context.sdks.microsoftTeams,
-        userDisplayName: this.context.pageContext.user.displayName
+        userDisplayName: this.context.pageContext.user.displayName,
+        imageUrl: this.properties.imageUrl || require('./assets/welcome-light.png'),
+        title: this.properties.title || 'Story Tile',
+        linkUrl: this.properties.linkUrl || '#'
       }
     );
 
@@ -41,8 +47,6 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       this._environmentMessage = message;
     });
   }
-
-
 
   private _getEnvironmentMessage(): Promise<string> {
     if (!!this.context.sdks.microsoftTeams) { // running in Teams, office.com or Outlook
@@ -86,7 +90,6 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
       this.domElement.style.setProperty('--link', semanticColors.link || null);
       this.domElement.style.setProperty('--linkHovered', semanticColors.linkHovered || null);
     }
-
   }
 
   protected onDispose(): void {
@@ -108,8 +111,17 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
             {
               groupName: strings.BasicGroupName,
               groupFields: [
+                PropertyPaneTextField('title', {
+                  label: 'Tile Title'
+                }),
                 PropertyPaneTextField('description', {
                   label: strings.DescriptionFieldLabel
+                }),
+                PropertyPaneTextField('imageUrl', {
+                  label: 'Image URL'
+                }),
+                PropertyPaneTextField('linkUrl', {
+                  label: 'Link URL'
                 })
               ]
             }
