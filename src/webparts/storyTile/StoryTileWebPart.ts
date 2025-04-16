@@ -9,12 +9,14 @@ import {
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 import { IReadonlyTheme } from '@microsoft/sp-component-base';
 import { SPFI, spfi, SPFx } from "@pnp/sp";
+import { IAttachmentInfo } from "@pnp/sp/attachments";
 import { LogLevel, PnPLogging } from "@pnp/logging";
 import "@pnp/sp/webs";
 import "@pnp/sp/lists";
 import "@pnp/sp/items";
 import "@pnp/sp/fields";
 import "@pnp/sp/files";
+import "@pnp/sp/attachments";
 
 import * as strings from 'StoryTileWebPartStrings';
 import StoryTile from './components/StoryTile';
@@ -39,7 +41,7 @@ export interface IStoryItem {
 }
 
 export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWebPartProps> {
-  private _sp: SPFI = null;
+  private _sp: SPFI;
   private _isDarkTheme: boolean = false;
   private _environmentMessage: string = '';
   private _storyItems: IStoryItem[] = [];
@@ -116,89 +118,33 @@ export default class StoryTileWebPart extends BaseClientSideWebPart<IStoryTileWe
         imageFieldInternalName = imageFieldName.replace(/ /g, '_x0020_');
       }
 
-      // Build a dynamic select query that includes all necessary fields
-      let selectQuery = `ID,${titleFieldName},${descFieldName},${linkFieldName}`;
-      
       // Try multiple approaches to get the image data
-      const items = await this._sp.web.lists.getByTitle(this.properties.listName).items
-        .select(selectQuery)
-        .expand(imageFieldInternalName)
-        .get();
+      const items = await this._sp.web.lists.getByTitle(this.properties.listName).items();
 
       // Process items
       const processedItems: IStoryItem[] = await Promise.all(
-        items.map(async (item) => {
+        items.map(async (item: any) => {
           let imageUrl = '';
           
-          // Approach 1: Try to get image via fieldValuesAsHtml
+          const a = this._sp.web.lists.getByTitle(this.properties.listName)
+          .items
+          .getById(item.ID);
+
+          const itemAttachments: IAttachmentInfo[] = await a.attachmentFiles();
+
           try {
-            const itemWithHtml = await this._sp.web.lists.getByTitle(this.properties.listName)
-              .items.getById(item.ID)
-              .fieldValuesAsHtml.get();
+            const imageName = JSON.parse(item.Image).fileName;
+            const imageAttachment = itemAttachments.filter(attachemnt => attachemnt.FileName === imageName)[0];
             
-            if (itemWithHtml[imageFieldInternalName]) {
-              // Extract URL from HTML
-              const htmlValue = itemWithHtml[imageFieldInternalName];
-              const imgSrcMatch = htmlValue.match(/src="([^"]+)"/);
-              if (imgSrcMatch && imgSrcMatch[1]) {
-                imageUrl = imgSrcMatch[1];
-              }
-            }
+            imageUrl = imageAttachment.ServerRelativeUrl;
           } catch (error) {
-            console.warn(`Approach 1 failed for item ${item.ID}:`, error);
-          }
-
-          // Approach 2: Try to access image JSON data directly
-          if (!imageUrl && item[imageFieldInternalName]) {
-            try {
-              // Handle different potential formats of the image data
-              if (typeof item[imageFieldInternalName] === 'string') {
-                imageUrl = item[imageFieldInternalName];
-              } else if (item[imageFieldInternalName].Url) {
-                imageUrl = item[imageFieldInternalName].Url;
-              } else if (item[imageFieldInternalName].serverRelativeUrl) {
-                imageUrl = item[imageFieldInternalName].serverRelativeUrl;
-              } else if (item[imageFieldInternalName].ServerRelativeUrl) {
-                imageUrl = item[imageFieldInternalName].ServerRelativeUrl;
-              }
-            } catch (error) {
-              console.warn(`Approach 2 failed for item ${item.ID}:`, error);
-            }
-          }
-
-          // Approach 3: Try with RenderListDataAsStream
-          if (!imageUrl) {
-            try {
-              const list = this._sp.web.lists.getByTitle(this.properties.listName);
-              const renderData = await list.renderListDataAsStream({
-                ViewXml: `<View><Query><Where><Eq><FieldRef Name='ID'/><Value Type='Number'>${item.ID}</Value></Eq></Where></Query></View>`
-              });
-              
-              if (renderData && renderData.Row && renderData.Row.length > 0) {
-                const row = renderData.Row[0];
-                // Check for various possible field names
-                const possibleFields = [
-                  imageFieldInternalName,
-                  `${imageFieldInternalName}.serverUrl`,
-                  `${imageFieldInternalName}.urlEncoded`,
-                  `${imageFieldInternalName}Url`
-                ];
-                
-                for (const field of possibleFields) {
-                  if (row[field] && !imageUrl) {
-                    imageUrl = row[field];
-                    break;
-                  }
-                }
-              }
-            } catch (error) {
-              console.warn(`Approach 3 failed for item ${item.ID}:`, error);
-            }
+            console.warn(`Getting item image url failed ${item.ID}:`, error);
           }
 
           // Convert relative URLs to absolute URLs
           if (imageUrl && imageUrl.startsWith('/')) {
-            imageUrl = `${this.context.pageContext.web.absoluteUrl.replace(/\/$/, '')}${imageUrl}`;
+            const tenantUrl = this.context.pageContext.web.absoluteUrl.replace(this.context.pageContext.web.serverRelativeUrl,'');
+            imageUrl = `${tenantUrl}${imageUrl}`;
           }
           
           // Use default image if no image was found
