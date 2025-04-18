@@ -8,12 +8,12 @@
       "@microsoft/teams-js": "2.24.0"
     },
     "version": "1.20.0",
-    "libraryName": "cc-cloud",
+    "libraryName": "sp-story-tile",
     "libraryId": "7eed8e27-06aa-45f5-8fc5-f972bf485abf",
     "environment": "spo",
     "packageManager": "npm",
-    "solutionName": "CCCloud",
-    "solutionShortDescription": "CCCloud description",
+    "solutionName": "sp-story-tile",
+    "solutionShortDescription": "sp-story-tile description",
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
     "componentType": "webpart"
